@@ -55,11 +55,9 @@ bool canWin(int a, int b, int c) {
 ```
 
 ## Files Included
-357clue.cpp: Main game logic (C++)
+- [357clue.cpp](./357clue.cpp) - Main game logic (C++)
+- [357 stones play stag.html](./357%20stones%20play%20stag.html) -Visual interface (HTML + JavaScript)
 
-357_stones_play_stage.html: Visual interface (HTML + JavaScript)
-
-README.md: Project overview
 
 ## Reflections
 This was my first time working with C++. I started with zero experience but gradually learned how to use control flow, functions, arrays, and recursion. This project helped me apply concepts like game trees and algorithmic thinking in a creative way. In the future, I hope to expand this into a two-player mode and add randomized AI to increase replayability.
