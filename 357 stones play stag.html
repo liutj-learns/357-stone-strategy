@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <title>357 石頭遊戲 + 策略分析 + 動畫與紀錄</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: linear-gradient(to right, #f8f9fa, #e3f2fd);
+      color: #333;
+      padding: 20px;
+      text-align: center;
+    }
+    input, button, select {
+      font-size: 16px;
+      padding: 5px 10px;
+      margin: 5px;
+      border-radius: 6px;
+      border: 1px solid #bbb;
+    }
+    button:hover {
+      background-color: #d0ebff;
+      cursor: pointer;
+    }
+    .zone {
+      display: inline-block;
+      width: 150px;
+      margin: 10px;
+      padding: 10px;
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+      transition: transform 0.2s;
+    }
+    .zone:hover {
+      transform: scale(1.05);
+    }
+    .stone {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      background: radial-gradient(circle, #6c757d, #495057);
+      margin: 3px;
+      border-radius: 50%;
+      animation: pop 0.3s ease;
+    }
+    @keyframes pop {
+      from { transform: scale(0.5); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+    #strategy, #result, #treeCanvas, #logArea {
+      margin-top: 20px;
+    }
+    #zones {
+      margin-top: 20px;
+    }
+    #logArea {
+      white-space: pre-wrap;
+      border: 1px solid #ccc;
+      padding: 10px;
+      background: #fff3cd;
+      max-height: 200px;
+      overflow-y: auto;
+      border-radius: 6px;
+      text-align: left;
+    }
+    h1 {
+      background: -webkit-linear-gradient(#2b5876, #4e4376);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    canvas {
+      background-color: #ffffff;
+      border: 1px solid #ccc;
+      border-radius: 10px;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>357 石頭遊戲 + 策略分析 + 動畫與紀錄</h1>
+
+  <label>A 區石頭數：</label><input id="aInput" type="number" value="3" min="0" max="20">
+  <label>B 區石頭數：</label><input id="bInput" type="number" value="5" min="0" max="20">
+  <label>C 區石頭數：</label><input id="cInput" type="number" value="7" min="0" max="20">
+  <label>選擇先後手：</label>
+  <select id="playerFirst">
+    <option value="true">玩家先手</option>
+    <option value="false">AI 先手</option>
+  </select>
+  <button onclick="startGame()">開始對戰</button>
+  <button onclick="downloadLog()">匯出對戰紀錄</button>
+
+  <h2 id="status">請設定初始狀態後按下開始</h2>
+
+  <div id="zones"></div>
+
+  <!-- 新增按鈕控制是否顯示推薦策略 -->
+  <button id="showStrategyBtn" onclick="toggleStrategy()">顯示推薦策略</button>
+  <div id="strategy" style="display:none;"></div>
+
+  <h3>對弈樹視覺化（目前局面）</h3>
+  <canvas id="treeCanvas" width="1000" height="600"></canvas>
+
+  <h3>對戰紀錄</h3>
+  <div id="logArea"></div>
+
+  <script>
+    let gameState = { A: 3, B: 5, C: 7 };
+    let playerTurn = true;
+    let memo = {}, log = [];
+    let strategyVisible = false;
+
+    function startGame() {
+      gameState.A = parseInt(document.getElementById('aInput').value);
+      gameState.B = parseInt(document.getElementById('bInput').value);
+      gameState.C = parseInt(document.getElementById('cInput').value);
+      playerTurn = document.getElementById('playerFirst').value === 'true';
+      memo = {}; log = [];
+      render();
+      logMessage(`開始遊戲。先手：${playerTurn ? '玩家' : 'AI'}`);
+      document.getElementById('status').innerText = playerTurn ? '你的回合，請操作' : 'AI 思考中...';
+      if (!playerTurn) setTimeout(aiMove, 800);
+      // 隱藏策略區，重置按鈕文字
+      strategyVisible = false;
+      document.getElementById('strategy').style.display = 'none';
+      document.getElementById('showStrategyBtn').innerText = '顯示推薦策略';
+    }
+
+    function render() {
+      const zones = document.getElementById('zones');
+      zones.innerHTML = '';
+      for (let zone of ['A', 'B', 'C']) {
+        let html = `<div class='zone'><h3>${zone}區</h3>`;
+        for (let i = 0; i < gameState[zone]; i++) {
+          html += `<div class='stone'></div>`;
+        }
+        html += `<br>`;
+        if (playerTurn && gameState[zone] > 0) {
+          for (let i = 1; i <= 3; i++) {
+            if (i <= gameState[zone]) {
+              html += `<button onclick="playerMove('${zone}', ${i})">拿${i}顆</button>`;
+            }
+          }
+        }
+        html += `</div>`;
+        zones.innerHTML += html;
+      }
+      drawTree(gameState.A, gameState.B, gameState.C);
+      if (strategyVisible) showStrategy();
+    }
+
+    function playerMove(zone, count) {
+      if (!playerTurn || gameState[zone] < count) return;
+      gameState[zone] -= count;
+      logMessage(`玩家從 ${zone} 拿走 ${count} 顆 → 剩下 (${gameState.A}, ${gameState.B}, ${gameState.C})`);
+      playerTurn = false;
+      checkWin();
+      if (!playerTurn) setTimeout(aiMove, 800);
+    }
+
+    function aiMove() {
+      let bestMove = null;
+      for (let zone of ['A', 'B', 'C']) {
+        for (let i = 1; i <= 3; i++) {
+          if (gameState[zone] >= i) {
+            gameState[zone] -= i;
+            if (!canWin(gameState.A, gameState.B, gameState.C)) {
+              bestMove = { zone, count: i };
+            }
+            gameState[zone] += i;
+          }
+        }
+      }
+      if (!bestMove) {
+        for (let zone of ['A', 'B', 'C']) {
+          for (let i = 1; i <= 3; i++) {
+            if (gameState[zone] >= i) {
+              bestMove = { zone, count: i };
+              break;
+            }
+          }
+          if (bestMove) break;
+        }
+      }
+      gameState[bestMove.zone] -= bestMove.count;
+      logMessage(`AI 從 ${bestMove.zone} 拿走 ${bestMove.count} 顆 → 剩下 (${gameState.A}, ${gameState.B}, ${gameState.C})`);
+      document.getElementById('status').innerText = `AI 從 ${bestMove.zone} 區拿走 ${bestMove.count} 顆石頭`;
+      playerTurn = true;
+      checkWin();
+    }
+
+    function checkWin() {
+      render();
+      if (gameState.A === 0 && gameState.B === 0 && gameState.C === 0) {
+        const result = playerTurn ? 'AI 獲勝！' : '你獲勝了！';
+        document.getElementById('status').innerText = result;
+        logMessage(`遊戲結束：${result}`);
+        playerTurn = false;
+      } else {
+        document.getElementById('status').innerText = playerTurn ? '你的回合' : 'AI 思考中...';
+      }
+    }
+
+    function canWin(a, b, c) {
+      const key = `${a},${b},${c}`;
+      if (memo[key] !== undefined) return memo[key];
+      if (a === 0 && b === 0 && c === 0) return false;
+      for (let i = 1; i <= 3; i++) {
+        if (a >= i && !canWin(a - i, b, c)) return memo[key] = true;
+        if (b >= i && !canWin(a, b - i, c)) return memo[key] = true;
+        if (c >= i && !canWin(a, b, c - i)) return memo[key] = true;
+      }
+      return memo[key] = false;
+    }
+
+    // 新增顯示/隱藏策略
+function toggleStrategy() {
+strategyVisible = !strategyVisible;
+document.getElementById('strategy').style.display = strategyVisible ? 'block' : 'none';
+document.getElementById('showStrategyBtn').innerText = strategyVisible ? '隱藏推薦策略' : '顯示推薦策略';
+if (strategyVisible) showStrategy();
+}
+function showStrategy() {
+  let html = '<h3>當前建議策略：</h3><ul>';
+  for (let zone of ['A', 'B', 'C']) {
+    for (let i = 1; i <= 3; i++) {
+      if (gameState[zone] >= i) {
+        let newA = zone === 'A' ? gameState.A - i : gameState.A;
+        let newB = zone === 'B' ? gameState.B - i : gameState.B;
+        let newC = zone === 'C' ? gameState.C - i : gameState.C;
+        let win = canWin(newA, newB, newC);
+        if (win) {
+          html += `<li>從 ${zone} 拿 ${i} 顆 → (${newA},${newB},${newC}) → 必敗，建議避免此步</li>`;
+        } else {
+          html += `<li>從 ${zone} 拿 ${i} 顆 → (${newA},${newB},${newC}) → 必勝，推薦此步</li>`;
+        }
+      }
+    }
+  }
+  html += '</ul>';
+  document.getElementById('strategy').innerHTML = html;
+}
+
+function drawTree(a, b, c) {
+  const canvas = document.getElementById('treeCanvas');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.font = '14px monospace';
+  ctx.fillStyle = '#333';
+
+  function drawNode(x, y, a, b, c) {
+    ctx.beginPath();
+    ctx.arc(x, y, 20, 0, 2 * Math.PI);
+    ctx.fillStyle = canWin(a, b, c) ? '#cce5ff' : '#f8d7da';
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#333';
+    ctx.fillText(`${a},${b},${c}`, x - 20, y + 5);
+  }
+
+  drawNode(500, 50, a, b, c);
+  let moves = [], startX = 150;
+  for (let zone of ['A', 'B', 'C']) {
+    for (let i = 1; i <= 3; i++) {
+      if (gameState[zone] >= i) {
+        let newA = zone === 'A' ? a - i : a;
+        let newB = zone === 'B' ? b - i : b;
+        let newC = zone === 'C' ? c - i : c;
+        moves.push({ a: newA, b: newB, c: newC, move: `${zone}-${i}` });
+      }
+    }
+  }
+
+  let spacing = 700 / (moves.length + 1);
+  moves.forEach((m, i) => {
+    let x = startX + i * spacing;
+    let y = 200;
+    drawNode(x, y, m.a, m.b, m.c);
+    ctx.beginPath();
+    ctx.moveTo(500, 70);
+    ctx.lineTo(x, y - 20);
+    ctx.stroke();
+    ctx.fillText(m.move, (500 + x) / 2 - 10, (70 + y - 20) / 2);
+  });
+}
+
+function logMessage(msg) {
+  log.push(msg);
+  const logArea = document.getElementById('logArea');
+  logArea.textContent += msg + '\n';
+  logArea.scrollTop = logArea.scrollHeight;
+}
+
+function downloadLog() {
+  const blob = new Blob([log.join('\n')], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'game_log.txt';
+  a.click();
+}
+</script> 
+</body>
+ </html>
