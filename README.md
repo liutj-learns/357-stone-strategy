@@ -56,7 +56,7 @@ bool canWin(int a, int b, int c) {
 
 ## Files Included
 - [357clue.cpp](./357clue.cpp) - Main game logic (C++)
-- [357 stones play stag.html](./357%20stones%20play%20stag.html) -Visual interface (HTML + JavaScript)
+- [index.html](./index.html) -Visual interface (HTML + JavaScript)
 
 
 ## Reflections
